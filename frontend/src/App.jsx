@@ -47,6 +47,8 @@ function Message({ msg }) {
     </div>
   );
 }
+// Add this after the scroll useEffect (around line 50)
+
 
 export default function App() {
   const [files, setFiles] = useState([]);
@@ -60,8 +62,16 @@ export default function App() {
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const sessionId = useRef(crypto.randomUUID());
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  useEffect(() => {
+  fetch(`${API_BASE}/health`)
+    .then(res => res.json())
+    .then(data => setIndexReady(data.index_ready))
+    .catch(() => {}); // silently fail if backend is down
+}, []);
 
   const addFiles = useCallback((newFiles) => {
     const pdfs = Array.from(newFiles).filter(f => f.type === "application/pdf");
@@ -93,7 +103,7 @@ export default function App() {
   };
 
   const sendMessage = async () => {
-    const q = input.trim();
+    const q = input.trim();                          // ← must be first
     if (!q || sending) return;
     setInput("");
     setMessages(prev => [...prev, { role: "user", content: q }]);
@@ -101,23 +111,32 @@ export default function App() {
     const loadingId = Date.now();
     setMessages(prev => [...prev, { role: "assistant", content: "", loading: true, id: loadingId }]);
     try {
-      const res = await fetch(`${API_BASE}/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
-      });
-      const data = await res.json();
-      setMessages(prev => prev.map(m =>
-        m.id === loadingId
-          ? { role: "assistant", content: res.ok ? data.answer : (data.detail || "Error.") }
-          : m
-      ));
+        const res = await fetch(`${API_BASE}/ask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                question: q,
+                session_id: sessionId.current    // ← add it here, inside the object
+            }),
+        });
+        const data = await res.json();
+        setMessages(prev => prev.map(m =>
+            m.id === loadingId
+                ? { role: "assistant", content: res.ok ? data.answer : (data.detail || "Error.") }
+                : m
+        ));
     } catch {
-      setMessages(prev => prev.map(m =>
-        m.id === loadingId ? { role: "assistant", content: "Cannot reach backend." } : m
-      ));
+        setMessages(prev => prev.map(m =>
+            m.id === loadingId ? { role: "assistant", content: "Cannot reach backend." } : m
+        ));
     }
     setSending(false);
+  };
+
+  const clearConversation = async () => {
+    setMessages([]);
+    await fetch(`${API_BASE}/clear/${sessionId.current}`, { method: "DELETE" });
+    sessionId.current = crypto.randomUUID(); // fresh session after clear
   };
 
   const onKeyDown = (e) => {
@@ -128,7 +147,8 @@ export default function App() {
     e.target.style.height = "auto";
     e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
   };
-
+  
+  
   return (
     <div style={{ display: "flex", height: "100vh", fontFamily: "Arial, sans-serif", background: "#f5f5f5", color: "#1a1a1a" }}>
       <style>{`
