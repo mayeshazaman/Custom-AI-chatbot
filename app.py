@@ -1,26 +1,26 @@
 """
-FastAPI backend for PDF chatbot.
+FastAPI backend for Document chatbot (PDF, TXT, DOCX).
 Run: uvicorn app:app --reload --port 8000
 """
 
 import os
 import io
+import logging
+from collections import defaultdict
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from PyPDF2 import PdfReader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_community.vectorstores import FAISS
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from collections import defaultdict
-import logging
-
 import google.generativeai as genai
+from docx import Document as DocxDocument
 from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from langchain_community.vectorstores import FAISS
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel
+from pypdf import PdfReader
 
 # ── Environment ───────────────────────────────────────────────────────────────
 load_dotenv()
@@ -31,7 +31,8 @@ genai.configure(api_key=api_key)
 
 FAISS_INDEX_PATH = "faiss_index"
 
-app = FastAPI(title="PDF Chatbot API")
+# ── App ───────────────────────────────────────────────────────────────────────
+app = FastAPI(title="Document Chatbot API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,30 +43,58 @@ app.add_middleware(
 
 conversation_store = defaultdict(list)
 
-import logging
-
 # ── Logger ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
-        logging.FileHandler("logs/app.log"),   # saves to file
-        logging.StreamHandler()                 # also prints to terminal
+        logging.FileHandler("logs/app.log"),
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
-# ── PDF helpers ───────────────────────────────────────────────────────────────
-def get_pdf_text(pdf_bytes_list: list[bytes]) -> str:
-    text = ""
-    for data in pdf_bytes_list:
-        reader = PdfReader(io.BytesIO(data))
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text
-    return text
+
+# ── File helpers ──────────────────────────────────────────────────────────────
+
+def get_pdf_text_from_bytes(content: bytes) -> str:
+    """Extract text from PDF bytes."""
+    reader = PdfReader(io.BytesIO(content))
+    return "".join(page.extract_text() or "" for page in reader.pages)
 
 
+def get_txt_text_from_bytes(content: bytes) -> str:
+    """Decode plain text bytes."""
+    return content.decode("utf-8", errors="ignore")
+
+
+def get_docx_text_from_bytes(content: bytes) -> str:
+    """Extract text from DOCX bytes."""
+    doc = DocxDocument(io.BytesIO(content))
+    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".docx"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+async def extract_text_from_files(files: list[UploadFile]) -> str:
+    all_text = ""
+    for file in files:
+        content = await file.read()
+        
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(413, f"{file.filename} exceeds 10MB limit.")
+        
+        ext = Path(file.filename).suffix.lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(415, f"Unsupported file type: {ext}")
+        
+        # extract immediately using the content you already have
+        if ext == ".pdf":
+            all_text += get_pdf_text_from_bytes(content)
+        elif ext == ".txt":
+            all_text += get_txt_text_from_bytes(content)
+        elif ext == ".docx":
+            all_text += get_docx_text_from_bytes(content)
+    
+    return all_text
 def get_text_chunks(text: str) -> list[str]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=10_000, chunk_overlap=1_000)
     return splitter.split_text(text)
@@ -73,11 +102,19 @@ def get_text_chunks(text: str) -> list[str]:
 
 def build_vector_store(chunks: list[str]) -> None:
     embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
-    store = FAISS.from_texts(chunks, embedding=embeddings)
-    store.save_local(FAISS_INDEX_PATH)
+    new_store = FAISS.from_texts(chunks, embedding=embeddings)
+    
+    if Path(FAISS_INDEX_PATH).exists():
+        existing = FAISS.load_local(FAISS_INDEX_PATH, embeddings,
+                                    allow_dangerous_deserialization=True)
+        existing.merge_from(new_store)
+        existing.save_local(FAISS_INDEX_PATH)
+    else:
+        new_store.save_local(FAISS_INDEX_PATH)
 
 
 # ── QA chain ──────────────────────────────────────────────────────────────────
+model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
 def get_conversational_chain():
     prompt_template = """
     You are a helpful chatbot. Answer using only the provided context.
@@ -100,7 +137,6 @@ def get_conversational_chain():
         template=prompt_template,
         input_variables=["context", "history", "question"]
     )
-    model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
     return prompt | model | StrOutputParser()
 
 
@@ -138,7 +174,7 @@ def validate_answer(answer: str, docs: list) -> dict:
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 def answer_question(user_question: str, session_id: str) -> dict:
     if not Path(FAISS_INDEX_PATH).exists():
-        return {"answer": "No index found. Please upload PDFs first.", "confidence": 0.0, "status": "no_index"}
+        return {"answer": "No index found. Please upload documents first.", "confidence": 0.0, "status": "no_index"}
 
     embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
     db = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
@@ -147,11 +183,10 @@ def answer_question(user_question: str, session_id: str) -> dict:
     if not docs:
         return {"answer": "No relevant content found.", "confidence": 0.0, "status": "no_docs"}
 
-    # Format history as a readable string for the prompt
     history = conversation_store[session_id]
     history_text = "\n".join(
         f"{msg['role'].capitalize()}: {msg['content']}"
-        for msg in history[-6:]  # last 6 messages = 3 exchanges
+        for msg in history[-6:]
     )
 
     context = "\n\n".join([doc.page_content for doc in docs])
@@ -164,7 +199,6 @@ def answer_question(user_question: str, session_id: str) -> dict:
 
     result = validate_answer(raw_answer, docs)
 
-    # Save to history only if answer was good
     if result["status"] == "ok":
         conversation_store[session_id].append({"role": "user", "content": user_question})
         conversation_store[session_id].append({"role": "assistant", "content": result["answer"]})
@@ -173,46 +207,37 @@ def answer_question(user_question: str, session_id: str) -> dict:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-@app.post("/upload")
-async def upload_pdfs(files: list[UploadFile] = File(...)):
-    if not files:
-        raise HTTPException(400, "No files provided.")
-
-    pdf_bytes_list = [await f.read() for f in files]
-    raw_text = get_pdf_text(pdf_bytes_list)
-
-    if not raw_text.strip():
-        raise HTTPException(422, "No readable text found in the uploaded PDFs.")
-
-    chunks = get_text_chunks(raw_text)
-    build_vector_store(chunks)
-
-    return {"message": f"Processed {len(files)} file(s) into {len(chunks)} chunks. Index is ready."}
-
-
 class QuestionRequest(BaseModel):
     question: str
-    session_id: str = "default"  # frontend sends this, defaults to "default"
+    session_id: str = "default"
+    
+class AnswerResponse(BaseModel):
+    answer: str        # "The policy states that..."
+    confidence: float  # 0.87
+    status: str        # "ok"
+class UploadResponse(BaseModel):
+    message: str       # "Processed 2 file(s) into 45 chunks."
 
-@app.post("/upload")
-async def upload_pdfs(files: list[UploadFile] = File(...)):
-    logger.info(f"Upload request received — {len(files)} file(s)")
+
+@app.post("/upload", response_model=UploadResponse)
+async def upload_files(files: list[UploadFile] = File(...)):
+    logger.info(f"Upload request received - {len(files)} file(s)")
     if not files:
         raise HTTPException(400, "No files provided.")
 
-    pdf_bytes_list = [await f.read() for f in files]
-    raw_text = get_pdf_text(pdf_bytes_list)
+    raw_text = await extract_text_from_files(files)
 
     if not raw_text.strip():
-        logger.warning("Upload failed — no readable text found in PDFs")
-        raise HTTPException(422, "No readable text found in the uploaded PDFs.")
+        logger.warning("Upload failed - no readable text found")
+        raise HTTPException(422, "No readable text found in uploaded files.")
 
     chunks = get_text_chunks(raw_text)
     build_vector_store(chunks)
-    logger.info(f"Index built successfully — {len(chunks)} chunks from {len(files)} file(s)")
+    logger.info(f"Index built - {len(chunks)} chunks from {len(files)} file(s)")
 
     return {"message": f"Processed {len(files)} file(s) into {len(chunks)} chunks. Index is ready."}
-@app.post("/ask")
+
+@app.post("/ask", response_model=AnswerResponse)  # add this
 async def ask(req: QuestionRequest):
     if not req.question.strip():
         raise HTTPException(400, "Question cannot be empty.")
@@ -221,16 +246,16 @@ async def ask(req: QuestionRequest):
     logger.info(f"Answer sent | status={result['status']} | confidence={result['confidence']}")
     return result
 
+
 @app.delete("/clear/{session_id}")
 async def clear_history(session_id: str):
     conversation_store.pop(session_id, None)
     logger.info(f"Conversation cleared | session={session_id}")
     return {"message": f"Conversation cleared for session {session_id}."}
 
+
 @app.get("/health")
 async def health():
     index_ready = Path(FAISS_INDEX_PATH).exists()
     logger.info(f"Health check | index_ready={index_ready}")
     return {"status": "ok", "index_ready": index_ready}
-
-    

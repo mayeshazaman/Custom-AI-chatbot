@@ -74,7 +74,8 @@ export default function App() {
 }, []);
 
   const addFiles = useCallback((newFiles) => {
-    const pdfs = Array.from(newFiles).filter(f => f.type === "application/pdf");
+    const allowed = ["application/pdf", "text/plain", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+    const pdfs = Array.from(newFiles).filter(f => allowed.includes(f.type));
     setFiles(prev => {
       const names = new Set(prev.map(f => f.name));
       return [...prev, ...pdfs.filter(f => !names.has(f.name))];
@@ -180,9 +181,9 @@ export default function App() {
             padding: "16px 12px", textAlign: "center", cursor: "pointer",
             fontSize: 13, color: "#aaa", lineHeight: 1.6,
           }}>
-            Click to select PDFs
+            Click to select PDFs, TXT, or DOCX
             <input
-              ref={fileInputRef} type="file" accept=".pdf" multiple hidden
+              ref={fileInputRef} type="file" accept=".pdf,.txt,.docx" multiple hidden
               onChange={e => addFiles(e.target.files)}
             />
           </label>
@@ -222,7 +223,7 @@ export default function App() {
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
             transition: "all 0.2s",
           }}>
-          {processing ? <><Spinner size={13} /> Processing…</> : "Process & Index PDFs"}
+          {processing ? <><Spinner size={13} /> Processing…</> : "Process & Index Documents"}
         </button>
 
         {processStatus && (
