@@ -106,3 +106,25 @@
 2026-05-07 20:15:34,184 | INFO | Retrying google.genai._api_client.BaseApiClient._request_once in 2.56 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
 2026-05-07 20:15:41,557 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
 2026-05-07 20:15:41,613 | INFO | Answer sent | status=ok | confidence=1.0
+2026-05-08 00:27:47,914 | INFO | Health check | index_ready=True
+2026-05-08 00:27:47,923 | INFO | Health check | index_ready=True
+2026-05-08 00:27:56,273 | INFO | Upload request received - 1 file(s)
+2026-05-08 00:27:57,595 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents "HTTP/1.1 200 OK"
+2026-05-08 00:27:58,393 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents "HTTP/1.1 200 OK"
+2026-05-08 00:27:58,461 | INFO | Loading faiss with AVX2 support.
+2026-05-08 00:27:59,018 | INFO | Successfully loaded faiss with AVX2 support.
+2026-05-08 00:27:59,098 | INFO | Index built - 4 chunks from 1 file(s)
+2026-05-08 00:28:13,982 | INFO | Question received | session=ec0bc9d4-b46a-48a6-bc2c-c7a0c95cda7e | q=what is scaled dot product Attention?
+2026-05-08 00:28:14,813 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents "HTTP/1.1 200 OK"
+2026-05-08 00:28:14,896 | INFO | AFC is enabled with max remote calls: 10.
+2026-05-08 00:28:16,919 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-05-08 00:28:16,921 | INFO | Retrying google.genai._api_client.BaseApiClient._request_once in 1.82 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
+2026-05-08 00:28:21,003 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-05-08 00:28:21,109 | INFO | Retrying google.genai._api_client.BaseApiClient._request_once in 2.24 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
+2026-05-08 00:28:27,076 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-05-08 00:28:27,088 | INFO | Answer sent | status=ok | confidence=0.79
+2026-05-08 00:29:32,861 | INFO | Question received | session=ec0bc9d4-b46a-48a6-bc2c-c7a0c95cda7e | q=what are the applications of attention?
+2026-05-08 00:29:33,558 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents "HTTP/1.1 200 OK"
+2026-05-08 00:29:33,570 | INFO | AFC is enabled with max remote calls: 10.
+2026-05-08 00:29:37,719 | INFO | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-05-08 00:29:37,723 | INFO | Answer sent | status=ok | confidence=0.82

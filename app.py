@@ -96,7 +96,7 @@ async def extract_text_from_files(files: list[UploadFile]) -> str:
     
     return all_text
 def get_text_chunks(text: str) -> list[str]:
-    splitter = RecursiveCharacterTextSplitter(chunk_size=10_000, chunk_overlap=1_000)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
     return splitter.split_text(text)
 
 
