@@ -1,0 +1,4 @@
+.env
+faiss_index/
+logs/
+__pycache__/
