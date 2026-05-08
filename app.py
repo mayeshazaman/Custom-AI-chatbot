@@ -9,7 +9,6 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
-import google.generativeai as genai
 from docx import Document as DocxDocument
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -17,17 +16,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 from pypdf import PdfReader
 
 # ── Environment ───────────────────────────────────────────────────────────────
 load_dotenv()
-api_key = os.getenv("GOOGLE_API_KEY")
-if not api_key:
-    raise RuntimeError("GOOGLE_API_KEY not found. Please set it in your .env file.")
-genai.configure(api_key=api_key)
+
+groq_api_key = os.getenv("GROQ_API_KEY")
+if not groq_api_key:
+    raise RuntimeError("GROQ_API_KEY not found.")
+
 
 FAISS_INDEX_PATH = "faiss_index"
 
@@ -101,20 +102,30 @@ def get_text_chunks(text: str) -> list[str]:
 
 
 def build_vector_store(chunks: list[str]) -> None:
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     new_store = FAISS.from_texts(chunks, embedding=embeddings)
     
     if Path(FAISS_INDEX_PATH).exists():
-        existing = FAISS.load_local(FAISS_INDEX_PATH, embeddings,
-                                    allow_dangerous_deserialization=True)
-        existing.merge_from(new_store)
-        existing.save_local(FAISS_INDEX_PATH)
+        try:
+            existing = FAISS.load_local(FAISS_INDEX_PATH, embeddings,
+                                        allow_dangerous_deserialization=True)
+            existing.merge_from(new_store)
+            existing.save_local(FAISS_INDEX_PATH)
+        except RuntimeError as e:
+            # If merge fails due to dimension mismatch, recreate the index
+            if "d ==" in str(e):
+                logging.warning(f"FAISS index dimension mismatch. Recreating index: {e}")
+                import shutil
+                shutil.rmtree(FAISS_INDEX_PATH)
+                new_store.save_local(FAISS_INDEX_PATH)
+            else:
+                raise
     else:
         new_store.save_local(FAISS_INDEX_PATH)
 
 
 # ── QA chain ──────────────────────────────────────────────────────────────────
-model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
+model = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3)
 def get_conversational_chain():
     prompt_template = """
     You are a helpful chatbot. Answer using only the provided context.
@@ -176,7 +187,7 @@ def answer_question(user_question: str, session_id: str) -> dict:
     if not Path(FAISS_INDEX_PATH).exists():
         return {"answer": "No index found. Please upload documents first.", "confidence": 0.0, "status": "no_index"}
 
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     db = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
     docs = db.similarity_search(user_question, k=4)
 
